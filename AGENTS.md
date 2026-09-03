@@ -1,5 +1,9 @@
 # Repository Guidelines
 
+## Public Repository Context
+
+Read `README.md` before making changes to understand ViMotes, its scope, and its public promises. This repository is maintained as a public open-source project, even when its visibility is temporarily private. Treat every tracked file, generated artifact, commit message, issue, and example as publishable. Use generic examples and public project URLs; exclude credentials, signing material, personal or professional identifiers, machine-specific paths, private endpoints, and internal-only context. Inspect the staged diff for this material before every commit.
+
 ## Project Structure & Module Organization
 
 `Sources/ViMotesCore/` contains the AppKit-independent Vim state machine and recovery policies. Keep deterministic input-to-action behavior here. `Sources/ViMotes/` contains the macOS menu bar app, Accessibility checks, event tap, mode indicators, persisted settings, and native action execution. Core tests live in `Tests/ViMotesCoreTests/`; application tests live in `Tests/ViMotesTests/`. `App/Info.plist` defines the application bundle, while `scripts/build-app.sh` creates the signed bundle under `dist/`.
@@ -28,17 +32,3 @@ History follows Conventional Commit prefixes: `feat:`, `fix:`, and `chore:`. Use
 ## Security & Repository Configuration
 
 Never commit certificates, signing identities, or local permission data. Use `VIMOTES_CODESIGN_IDENTITY` only as a local environment override.
-
-## Agent skills
-
-### Issue tracker
-
-Issues live in the repo's GitHub Issues, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Default vocabulary — the five canonical labels used as-is (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.

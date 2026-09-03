@@ -1,5 +1,9 @@
 # ViMotes
 
+<p align="center">
+  <img src="App/Resources/ViMotesIcon.png" alt="ViMotes app icon" width="160">
+</p>
+
 **Vim motions and modes for Apple Notes.**
 
 ![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-black)
@@ -69,13 +73,13 @@ If no development certificate is available, the script uses an ad hoc signature.
 3. Open Apple Notes and place the cursor in an editable note.
 4. Start navigating in Normal mode, or press `i` to enter Insert mode.
 
-By default, the current mode appears both in the menu bar and in the lower-right corner of the active Apple Notes window. The window indicator follows Notes as it moves or resizes. Both indicators disappear when they are not relevant. Standard `⌘` shortcuts continue to work in every mode.
+By default, the current mode appears both in the menu bar and in the lower-right corner of the active Apple Notes window. The window indicator follows Notes as it moves or resizes, then disappears when the editor is no longer active. The menu bar item remains available and switches to a neutral status icon. Standard `⌘` shortcuts continue to work in every mode.
 
 ## Settings
 
 Open the ViMotes menu bar item and choose **Settings…** to access one unified interface:
 
-- **General** controls the mode indicators, launch at login, and automatic updates.
+- **General** controls the mode indicators, launch at login, and automatic updates. It also provides direct links to the source code and GitHub Issues.
 - **Commands** lists every Vim command currently supported by ViMotes.
 - **Accessibility** shows the live permission status, explains why access is needed, and opens the relevant System Settings page.
 
