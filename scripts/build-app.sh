@@ -18,6 +18,8 @@ rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources" "$CONTENTS_DIR/Frameworks"
 cp "$ROOT_DIR/.build/$CONFIGURATION/ViMotes" "$CONTENTS_DIR/MacOS/ViMotes"
 cp "$ROOT_DIR/App/Info.plist" "$CONTENTS_DIR/Info.plist"
+cp "$ROOT_DIR/App/Resources/ViMotes.icns" \
+  "$CONTENTS_DIR/Resources/ViMotes.icns"
 cp "$ROOT_DIR/.build/artifacts/sparkle/Sparkle/LICENSE" \
   "$CONTENTS_DIR/Resources/Sparkle-LICENSE.txt"
 ditto "$ROOT_DIR/.build/$CONFIGURATION/Sparkle.framework" \

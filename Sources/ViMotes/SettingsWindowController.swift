@@ -9,6 +9,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     case accessibility
   }
 
+  private enum Links {
+    static let repository = URL(string: "https://github.com/YassineBenh/vimotes")!
+    static let newIssue = URL(string: "https://github.com/YassineBenh/vimotes/issues/new")!
+  }
+
   private let settings: ViMotesSettings
   private let launchAtLoginManager: LaunchAtLoginManager
   private let tabViewController: NSTabViewController
@@ -17,6 +22,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
   private let launchAtLoginSwitch: NSSwitch
   private let launchAtLoginDetail: NSTextField
   private let automaticUpdatesSwitch: NSSwitch
+  private let githubButton: NSButton
+  private let reportIssueButton: NSButton
   private let accessibilityStatusDot: NSView
   private let accessibilityStatusTitle: NSTextField
   private let accessibilityStatusDetail: NSTextField
@@ -35,13 +42,15 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     launchAtLoginSwitch = NSSwitch()
     launchAtLoginDetail = NSTextField(wrappingLabelWithString: "")
     automaticUpdatesSwitch = NSSwitch()
+    githubButton = NSButton(title: "Open GitHub", target: nil, action: nil)
+    reportIssueButton = NSButton(title: "Report an Issue", target: nil, action: nil)
     accessibilityStatusDot = NSView()
     accessibilityStatusTitle = NSTextField(labelWithString: "")
     accessibilityStatusDetail = NSTextField(wrappingLabelWithString: "")
     accessibilityButton = NSButton(title: "", target: nil, action: nil)
 
     tabViewController.tabStyle = .toolbar
-    tabViewController.preferredContentSize = NSSize(width: 620, height: 410)
+    tabViewController.preferredContentSize = NSSize(width: 620, height: 480)
     tabViewController.addTabViewItem(
       Self.makeTab(
         label: "General",
@@ -51,7 +60,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
           notesWindowSwitch: notesWindowSwitch,
           launchAtLoginSwitch: launchAtLoginSwitch,
           launchAtLoginDetail: launchAtLoginDetail,
-          automaticUpdatesSwitch: automaticUpdatesSwitch
+          automaticUpdatesSwitch: automaticUpdatesSwitch,
+          githubButton: githubButton,
+          reportIssueButton: reportIssueButton
         )
       )
     )
@@ -76,7 +87,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     )
 
     let window = NSWindow(
-      contentRect: NSRect(x: 0, y: 0, width: 620, height: 410),
+      contentRect: NSRect(x: 0, y: 0, width: 620, height: 480),
       styleMask: [.titled, .closable],
       backing: .buffered,
       defer: false
@@ -84,7 +95,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     window.title = "ViMotes Settings"
     window.isReleasedWhenClosed = false
     window.contentViewController = tabViewController
-    window.setContentSize(NSSize(width: 620, height: 410))
+    window.setContentSize(NSSize(width: 620, height: 480))
     window.center()
 
     super.init(window: window)
@@ -99,6 +110,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     automaticUpdatesSwitch.target = self
     automaticUpdatesSwitch.action = #selector(toggleAutomaticUpdates)
     automaticUpdatesSwitch.isEnabled = updatesAvailable
+    githubButton.target = self
+    githubButton.action = #selector(openGitHubRepository)
+    reportIssueButton.target = self
+    reportIssueButton.action = #selector(openNewGitHubIssue)
     accessibilityButton.target = self
     accessibilityButton.action = #selector(openAccessibilitySettings)
     syncControls()
@@ -148,6 +163,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
   @objc private func toggleAutomaticUpdates() {
     settings.automaticallyChecksForUpdates = automaticUpdatesSwitch.state == .on
+  }
+
+  @objc private func openGitHubRepository() {
+    NSWorkspace.shared.open(Links.repository)
+  }
+
+  @objc private func openNewGitHubIssue() {
+    NSWorkspace.shared.open(Links.newIssue)
   }
 
   @objc private func openAccessibilitySettings() {
@@ -237,7 +260,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
   private static func makeTab(label: String, symbol: String, view: NSView) -> NSTabViewItem {
     let viewController = NSViewController()
     viewController.view = view
-    viewController.preferredContentSize = NSSize(width: 620, height: 410)
+    viewController.preferredContentSize = NSSize(width: 620, height: 480)
     let item = NSTabViewItem(viewController: viewController)
     item.label = label
     item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
@@ -249,7 +272,9 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     notesWindowSwitch: NSSwitch,
     launchAtLoginSwitch: NSSwitch,
     launchAtLoginDetail: NSTextField,
-    automaticUpdatesSwitch: NSSwitch
+    automaticUpdatesSwitch: NSSwitch,
+    githubButton: NSButton,
+    reportIssueButton: NSButton
   ) -> NSView {
     let menuBarRow = makeOptionRow(
       title: "Show mode in the menu bar",
@@ -285,7 +310,20 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     options.alignment = .width
     options.spacing = 0
 
-    let footer = NSTextField(labelWithString: "ViMotes is free and open source under MIT.")
+    let openSourceCard = makeOpenSourceCard(
+      githubButton: githubButton,
+      reportIssueButton: reportIssueButton
+    )
+    let content = NSStackView(views: [options, openSourceCard])
+    content.orientation = .vertical
+    content.alignment = .width
+    content.spacing = 16
+
+    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString")
+      as? String ?? "Development"
+    let footer = NSTextField(
+      labelWithString: "ViMotes \(version) · Free and open source under the MIT License."
+    )
     footer.font = .systemFont(ofSize: 11)
     footer.textColor = .secondaryLabelColor
 
@@ -294,13 +332,14 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
       detail: "Choose how ViMotes appears and starts on your Mac.",
       symbol: "character.cursor.ibeam",
       color: .systemBlue,
-      content: options,
+      content: content,
       footer: footer,
       constraints: [
         menuBarRow.heightAnchor.constraint(equalToConstant: 56),
         notesWindowRow.heightAnchor.constraint(equalToConstant: 56),
         launchAtLoginRow.heightAnchor.constraint(equalToConstant: 56),
         updateRow.heightAnchor.constraint(equalToConstant: 56),
+        openSourceCard.heightAnchor.constraint(equalToConstant: 76),
       ]
     )
   }
@@ -460,7 +499,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     footer: NSView? = nil,
     constraints: [NSLayoutConstraint] = []
   ) -> NSView {
-    let root = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 620, height: 410))
+    let root = NSVisualEffectView(frame: NSRect(x: 0, y: 0, width: 620, height: 480))
     root.material = .contentBackground
     root.state = .active
 
@@ -568,6 +607,85 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
       toggle.centerYAnchor.constraint(equalTo: row.centerYAnchor),
     ])
     return row
+  }
+
+  private static func makeOpenSourceCard(
+    githubButton: NSButton,
+    reportIssueButton: NSButton
+  ) -> NSView {
+    let icon = NSImageView()
+    icon.image = NSImage(
+      systemSymbolName: "chevron.left.forwardslash.chevron.right",
+      accessibilityDescription: "Open Source"
+    )
+    icon.contentTintColor = .systemIndigo
+    icon.symbolConfiguration = .init(pointSize: 17, weight: .medium)
+
+    let iconBackground = NSView()
+    iconBackground.wantsLayer = true
+    iconBackground.layer?.backgroundColor = NSColor.systemIndigo
+      .withAlphaComponent(0.12).cgColor
+    iconBackground.layer?.cornerRadius = 8
+    iconBackground.addSubview(icon)
+    icon.translatesAutoresizingMaskIntoConstraints = false
+
+    let title = NSTextField(labelWithString: "ViMotes on GitHub")
+    title.font = .systemFont(ofSize: 13, weight: .semibold)
+    let detail = NSTextField(
+      wrappingLabelWithString:
+        "View the source, report an issue, or support the project with a star."
+    )
+    detail.font = .systemFont(ofSize: 11)
+    detail.textColor = .secondaryLabelColor
+    detail.maximumNumberOfLines = 2
+    let text = NSStackView(views: [title, detail])
+    text.orientation = .vertical
+    text.alignment = .leading
+    text.spacing = 3
+
+    githubButton.bezelStyle = .rounded
+    githubButton.image = NSImage(
+      systemSymbolName: "star",
+      accessibilityDescription: "Star ViMotes on GitHub"
+    )
+    githubButton.imagePosition = .imageLeading
+    githubButton.toolTip = "Open the ViMotes repository on GitHub"
+    reportIssueButton.bezelStyle = .rounded
+    reportIssueButton.toolTip = "Open a new ViMotes issue on GitHub"
+    let actions = NSStackView(views: [githubButton, reportIssueButton])
+    actions.orientation = .horizontal
+    actions.alignment = .centerY
+    actions.spacing = 8
+
+    let row = NSStackView(views: [iconBackground, text, actions])
+    row.orientation = .horizontal
+    row.alignment = .centerY
+    row.spacing = 12
+    text.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    actions.setContentHuggingPriority(.required, for: .horizontal)
+
+    let card = NSBox()
+    card.boxType = .custom
+    card.fillColor = .controlBackgroundColor
+    card.borderColor = .separatorColor
+    card.borderWidth = 0.5
+    card.cornerRadius = 10
+    let container = NSView()
+    container.addSubview(row)
+    row.translatesAutoresizingMaskIntoConstraints = false
+    card.contentView = container
+
+    NSLayoutConstraint.activate([
+      iconBackground.widthAnchor.constraint(equalToConstant: 36),
+      iconBackground.heightAnchor.constraint(equalToConstant: 36),
+      icon.centerXAnchor.constraint(equalTo: iconBackground.centerXAnchor),
+      icon.centerYAnchor.constraint(equalTo: iconBackground.centerYAnchor),
+      row.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14),
+      row.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -14),
+      row.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+    ])
+    return card
   }
 
   private static func makeCommandRow(
