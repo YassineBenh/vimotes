@@ -1,0 +1,6 @@
+.build/
+.swiftpm/
+dist/
+release-artifacts/
+*.xcuserstate
+.DS_Store
