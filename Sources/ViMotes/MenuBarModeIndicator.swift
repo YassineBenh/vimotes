@@ -4,6 +4,15 @@ import ViMotesCore
 @MainActor
 final class MenuBarModeIndicator {
   private let button: NSStatusBarButton
+  private struct State: Equatable {
+    let mode: VimMode
+    let isActive: Bool
+    let isEnabled: Bool
+    let permissionGranted: Bool
+    let showsMode: Bool
+    let hasPendingUpdate: Bool
+  }
+  private var lastState: State?
 
   init(button: NSStatusBarButton) {
     self.button = button
@@ -18,8 +27,25 @@ final class MenuBarModeIndicator {
     isActive: Bool,
     isEnabled: Bool,
     permissionGranted: Bool,
-    showsMode: Bool
+    showsMode: Bool,
+    hasPendingUpdate: Bool = false
   ) {
+    let state = State(
+      mode: mode, isActive: isActive, isEnabled: isEnabled,
+      permissionGranted: permissionGranted, showsMode: showsMode,
+      hasPendingUpdate: hasPendingUpdate
+    )
+    guard state != lastState else { return }
+    lastState = state
+    if hasPendingUpdate {
+      display(
+        image: symbol("arrow.down.circle.fill"),
+        title: isActive && showsMode ? mode.rawValue : nil,
+        toolTip: "ViMotes — update available",
+        accessibilityValue: "Update available"
+      )
+      return
+    }
     if !permissionGranted {
       display(
         image: symbol("exclamationmark.triangle.fill"),

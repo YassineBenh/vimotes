@@ -16,6 +16,37 @@ enum AccessibilityPermission {
 }
 
 enum NotesFocus {
+  struct EditorContext: Equatable {
+    let element: AXUIElement
+    let window: AXUIElement
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+      CFEqual(lhs.element, rhs.element) && CFEqual(lhs.window, rhs.window)
+    }
+  }
+
+  struct SelectionSnapshot: Equatable {
+    let location: Int
+    let length: Int
+    let characterCount: Int
+  }
+
+  static var editorContext: EditorContext? {
+    guard let element = focusedNotesEditor,
+      let window = elementAttribute(kAXWindowAttribute, from: element)
+    else { return nil }
+    return EditorContext(element: element, window: window)
+  }
+
+  static var selectionSnapshot: SelectionSnapshot? {
+    guard let element = focusedUIElement(),
+      let range = selectedTextRange(from: element),
+      let count: NSNumber = attribute(kAXNumberOfCharactersAttribute, from: element)
+    else { return nil }
+    return SelectionSnapshot(
+      location: range.location, length: range.length, characterCount: count.intValue)
+  }
+
   enum SelectionResult {
     case unavailable
     case empty
@@ -36,26 +67,26 @@ enum NotesFocus {
   ]
 
   static var isEditorFocused: Bool {
+    focusedNotesEditor != nil
+  }
+
+  private static var focusedNotesEditor: AXUIElement? {
     guard AccessibilityPermission.isGranted,
-      NSWorkspace.shared.frontmostApplication?.bundleIdentifier == notesBundleIdentifier,
+      let application = NSWorkspace.shared.frontmostApplication,
+      application.bundleIdentifier == notesBundleIdentifier,
       let focusedElement = focusedUIElement(),
       let role: String = attribute(kAXRoleAttribute, from: focusedElement),
       supportedEditorRoles.contains(role)
     else {
-      return false
+      return nil
     }
 
+    var processID: pid_t = 0
+    guard AXUIElementGetPid(focusedElement, &processID) == .success,
+      processID == application.processIdentifier
+    else { return nil }
     let enabled: Bool? = attribute(kAXEnabledAttribute, from: focusedElement)
-    return enabled ?? true
-  }
-
-  static var hasSelection: Bool {
-    guard let focusedElement = focusedUIElement(),
-      let range = selectedTextRange(from: focusedElement)
-    else {
-      return false
-    }
-    return range.length > 0
+    return enabled == false ? nil : focusedElement
   }
 
   static var activeWindowFrame: CGRect? {
@@ -163,7 +194,8 @@ enum NotesFocus {
   static func selectToLineBoundary(_ boundary: LineBoundary) -> SelectionResult {
     guard let context = lineSelectionContext() else { return .unavailable }
 
-    let boundaryLocation = boundary == .start
+    let boundaryLocation =
+      boundary == .start
       ? context.currentLine.location
       : context.currentLine.location + context.currentLine.length
     let range = CFRange(
@@ -197,7 +229,7 @@ enum NotesFocus {
     guard let focusedElement = focusedUIElement(),
       let range = selectedTextRange(from: focusedElement)
     else {
-      return true
+      return false
     }
 
     guard range.length > 0 else { return true }
@@ -246,6 +278,7 @@ enum NotesFocus {
 
   private static func focusedUIElement() -> AXUIElement? {
     let systemWideElement = AXUIElementCreateSystemWide()
+    AXUIElementSetMessagingTimeout(systemWideElement, 0.05)
     var value: CFTypeRef?
     let result = AXUIElementCopyAttributeValue(
       systemWideElement,
@@ -259,7 +292,9 @@ enum NotesFocus {
       return nil
     }
 
-    return unsafeDowncast(value, to: AXUIElement.self)
+    let element = unsafeDowncast(value, to: AXUIElement.self)
+    AXUIElementSetMessagingTimeout(element, 0.05)
+    return element
   }
 
   private static func attribute<T>(_ name: String, from element: AXUIElement) -> T? {
@@ -350,10 +385,12 @@ enum NotesFocus {
       return number.intValue
     }
 
-    guard let characterCount: NSNumber = attribute(
-      kAXNumberOfCharactersAttribute,
-      from: element
-    ), characterCount.intValue > 0 else {
+    guard
+      let characterCount: NSNumber = attribute(
+        kAXNumberOfCharactersAttribute,
+        from: element
+      ), characterCount.intValue > 0
+    else {
       return nil
     }
     return integerParameterizedAttribute(
@@ -369,12 +406,14 @@ enum NotesFocus {
     from element: AXUIElement
   ) -> Int? {
     var value: CFTypeRef?
-    guard AXUIElementCopyParameterizedAttributeValue(
-      element,
-      name as CFString,
-      NSNumber(value: parameter),
-      &value
-    ) == .success else {
+    guard
+      AXUIElementCopyParameterizedAttributeValue(
+        element,
+        name as CFString,
+        NSNumber(value: parameter),
+        &value
+      ) == .success
+    else {
       return nil
     }
     return (value as? NSNumber)?.intValue
@@ -386,12 +425,13 @@ enum NotesFocus {
     from element: AXUIElement
   ) -> CFRange? {
     var value: CFTypeRef?
-    guard AXUIElementCopyParameterizedAttributeValue(
-      element,
-      name as CFString,
-      NSNumber(value: parameter),
-      &value
-    ) == .success,
+    guard
+      AXUIElementCopyParameterizedAttributeValue(
+        element,
+        name as CFString,
+        NSNumber(value: parameter),
+        &value
+      ) == .success,
       let value,
       CFGetTypeID(value) == AXValueGetTypeID()
     else {

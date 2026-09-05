@@ -65,6 +65,7 @@ final class NotesWindowModeIndicator {
   }
 
   func update(mode: VimMode, notesWindowFrame: CGRect?) {
+    guard mode != currentMode || notesWindowFrame != currentWindowFrame else { return }
     currentMode = mode
     currentWindowFrame = notesWindowFrame
 

@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
+source "$ROOT_DIR/scripts/lib/release-publication.sh"
 VERSION="${1:-}"
 INFO_PLIST="$ROOT_DIR/App/Info.plist"
 NOTARY_PROFILE="${VIMOTES_NOTARY_PROFILE:-vimotes-notary}"
@@ -24,6 +25,11 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then
   echo "error: tag v$VERSION already exists" >&2
+  exit 1
+fi
+ARTIFACT_DIR="$ROOT_DIR/release-artifacts/$VERSION"
+if [[ -e "$ARTIFACT_DIR" ]]; then
+  echo "error: artifacts for $VERSION already exist; archive them outside this directory before rebuilding" >&2
   exit 1
 fi
 
@@ -53,7 +59,6 @@ fi
 
 BUILD_NUMBER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO_PLIST")
 BUILD_NUMBER=$((BUILD_NUMBER + 1))
-ARTIFACT_DIR="$ROOT_DIR/release-artifacts/$VERSION"
 APP_PATH="$ROOT_DIR/dist/ViMotes.app"
 ZIP_PATH="$ARTIFACT_DIR/ViMotes-$VERSION.zip"
 DMG_PATH="$ARTIFACT_DIR/ViMotes-$VERSION.dmg"
@@ -74,7 +79,9 @@ fi
 
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$INFO_PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $BUILD_NUMBER" "$INFO_PLIST"
+SOURCE_TREE=$(vimotes_source_tree)
 swift test
+VIMOTES_APP_DIR="$APP_PATH" \
 VIMOTES_BUILD_CONFIGURATION=release \
 VIMOTES_RELEASE_BUILD=1 \
 VIMOTES_CODESIGN_IDENTITY="$IDENTITY" \
@@ -83,7 +90,6 @@ VIMOTES_CODESIGN_IDENTITY="$IDENTITY" \
 codesign --verify --strict --verbose=2 \
   "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 codesign --verify --strict --verbose=2 "$APP_PATH"
-rm -rf "$ARTIFACT_DIR"
 mkdir -p "$ARTIFACT_DIR" "$PAGES_DIR" "$APPCAST_INPUT_DIR"
 dsymutil "$APP_PATH/Contents/MacOS/ViMotes" \
   -o "$ARTIFACT_DIR/ViMotes-$VERSION.dSYM"
@@ -126,8 +132,19 @@ cp "$ZIP_PATH" "$APPCAST_INPUT_DIR/"
   -o "$PAGES_DIR/appcast.xml" \
   "$APPCAST_INPUT_DIR"
 
+if [[ "$(vimotes_source_tree)" != "$SOURCE_TREE" ]]; then
+  echo "error: sources changed during release preparation; do not publish these artifacts" >&2
+  exit 1
+fi
+vimotes_write_manifest "$ARTIFACT_DIR/release-manifest.plist" \
+  "$SOURCE_TREE" "$VERSION" "$BUILD_NUMBER" "$VIMOTES_SPARKLE_PUBLIC_KEY"
+APPCAST_SHA256=$(shasum -a 256 "$PAGES_DIR/appcast.xml" | awk '{ print $1 }')
+/usr/libexec/PlistBuddy -c "Add :appcastSHA256 string $APPCAST_SHA256" \
+  "$ARTIFACT_DIR/release-manifest.plist"
 (
   cd "$ARTIFACT_DIR"
-  shasum -a 256 "ViMotes-$VERSION.zip" "ViMotes-$VERSION.dmg" > SHA256SUMS
+  shasum -a 256 "ViMotes-$VERSION.zip" "ViMotes-$VERSION.dmg" \
+    release-manifest.plist > SHA256SUMS
+  shasum -a 256 "ViMotes-$VERSION.dSYM.zip" > DSYM-SHA256SUMS
 )
 echo "$ARTIFACT_DIR"

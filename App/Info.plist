@@ -30,6 +30,8 @@
     <true/>
     <key>SUEnableSystemProfiling</key>
     <false/>
+    <key>SUAllowsAutomaticUpdates</key>
+    <false/>
     <key>SUFeedURL</key>
     <string>https://yassinebenh.github.io/vimotes/appcast.xml</string>
     <key>SUPublicEDKey</key>

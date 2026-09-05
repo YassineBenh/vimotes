@@ -18,7 +18,9 @@ request the note text or selected text.
 
 To support the Vim `.` command, ViMotes keeps the last repeatable change in process
 memory. When that change includes text typed directly in Insert mode, the text remains
-in memory until another repeatable change replaces it or ViMotes exits. ViMotes does not
+in memory until another repeatable change replaces it, an unsupported edit or interrupted
+insertion invalidates it, or ViMotes exits. Recorded Insert text is limited to 16 KiB.
+ViMotes does not
 explicitly write this text to disk or transmit it. Invoking `.` inserts it into Notes
 again.
 
@@ -39,7 +41,13 @@ Signed release builds use Sparkle to request
 `https://yassinebenh.github.io/vimotes/appcast.xml` when checking for updates. The
 request identifies the installed ViMotes version and macOS version so Sparkle can select
 a compatible update. Sparkle system profiling is disabled, and updates are never
-installed silently.
+installed silently: automatic installation is disabled in the app configuration and
+each installation requires user approval. Available updates are indicated in the menu bar.
+
+GitHub serves the appcast and release downloads over HTTPS and receives normal request
+metadata, including the connecting IP address. Downloaded updates are checked using
+Sparkle signatures. Automatic checks can be disabled in General settings; manual checks
+remain available.
 
 Builds compiled from source do not check for updates unless a valid Sparkle public key
 is configured in the application bundle.

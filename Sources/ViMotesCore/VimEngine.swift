@@ -9,6 +9,10 @@ public enum VimInput: Equatable, Sendable {
   case control(Character)
   case command(Character)
   case escape
+  case backspace
+  case deleteForward
+  case newline
+  case tab
   case other
 }
 
@@ -79,6 +83,9 @@ public struct VimTransition: Equatable, Sendable {
 }
 
 public struct VimEngine: Sendable {
+  public static let maximumCount = 100
+  public static let maximumActions = 256
+  public static let maximumRecordedTextBytes = 16_384
   private struct VimCount: Sendable {
     private(set) var input = ""
     private var value: Int?
@@ -91,8 +98,8 @@ public struct VimEngine: Sendable {
       else {
         return false
       }
-      input.append(character)
-      value = min(999, (value ?? 0) * 10 + digit)
+      if input.count < 8 { input.append(character) }
+      value = min(VimEngine.maximumCount, (value ?? 0) * 10 + digit)
       return true
     }
 
@@ -142,15 +149,30 @@ public struct VimEngine: Sendable {
   private var pendingReplace: PendingReplace?
   private var insertRecording: InsertRecording?
   private var lastChange: [VimAction] = []
+  private var visualSelection: [VimAction] = []
 
   public init(mode: VimMode = .normal) {
     self.mode = mode
   }
 
+  public mutating func cancelContext() {
+    if insertRecording != nil { lastChange = [] }
+    insertRecording = nil
+    visualSelection = []
+    resetPendingInput()
+    mode = .normal
+  }
+
+  public mutating func discardLastChange() {
+    lastChange = []
+    insertRecording = nil
+  }
+
   public mutating func handle(_ input: VimInput) -> VimTransition {
     if case .command = input {
-      if mode == .insert {
-        insertRecording = nil
+      if mode == .insert || mode == .visual {
+        discardLastChange()
+        visualSelection = []
       }
       let restoration = pendingInputPrefix
       resetPendingInput()
@@ -163,7 +185,25 @@ public struct VimEngine: Sendable {
     case .normal:
       return handleNormal(input)
     case .visual:
-      return handleVisual(input)
+      let transition = handleVisual(input)
+      if !transition.consumesInput {
+        visualSelection = []
+        discardLastChange()
+      }
+      if mode == .visual {
+        let selections = transition.actions.filter {
+          if case .move = $0 { return true }
+          return false
+        }
+        if !visualSelection.isEmpty,
+          visualSelection.count + selections.count <= Self.maximumActions - 4
+        {
+          visualSelection += selections
+        } else {
+          visualSelection = []
+        }
+      }
+      return transition
     }
   }
 
@@ -173,15 +213,35 @@ public struct VimEngine: Sendable {
       return changeMode(to: .normal, after: .collapseSelection)
     }
 
-    guard case .character(let character) = input else {
-      insertRecording = nil
+    guard var recording = insertRecording else { return .passthrough(mode: mode) }
+    switch input {
+    case .character(let character):
+      if character.unicodeScalars.contains(where: {
+        $0.value < 32 || $0.value == 127 || (0xF700...0xF8FF).contains($0.value)
+      }) {
+        discardLastChange()
+        return .passthrough(mode: mode)
+      }
+      recording.text.append(character)
+    case .newline:
+      recording.text.append("\n")
+    case .tab:
+      recording.text.append("\t")
+    case .backspace:
+      guard !recording.text.isEmpty else {
+        discardLastChange()
+        return .passthrough(mode: mode)
+      }
+      recording.text.removeLast()
+    default:
+      discardLastChange()
       return .passthrough(mode: mode)
     }
-
-    if var insertRecording {
-      insertRecording.text.append(character)
-      self.insertRecording = insertRecording
+    guard recording.text.utf8.count <= Self.maximumRecordedTextBytes else {
+      discardLastChange()
+      return .passthrough(mode: mode)
     }
+    insertRecording = recording
     return .passthrough(mode: mode)
   }
 
@@ -230,19 +290,11 @@ public struct VimEngine: Sendable {
     let resolvedCount = pendingCount.consume()
     let count = resolvedCount.value
 
+    if let motion = VimCommandCatalog.motion(for: character) {
+      return consumed(repeating: [.move(motion)], count: count)
+    }
+
     switch character {
-    case "h": return consumed(repeating: [.move(.characterBackward)], count: count)
-    case "j": return consumed(repeating: [.move(.lineDown)], count: count)
-    case "k": return consumed(repeating: [.move(.lineUp)], count: count)
-    case "l": return consumed(repeating: [.move(.characterForward)], count: count)
-    case "w": return consumed(repeating: [.move(.wordForward)], count: count)
-    case "b": return consumed(repeating: [.move(.wordBackward)], count: count)
-    case "e": return consumed(repeating: [.move(.wordEnd)], count: count)
-    case "0", "_": return consumed(repeating: [.move(.lineStart)], count: count)
-    case "$": return consumed(repeating: [.move(.lineEnd)], count: count)
-    case "G": return consumed(repeating: [.move(.documentEnd)], count: count)
-    case "{": return consumed(repeating: [.move(.paragraphBackward)], count: count)
-    case "}": return consumed(repeating: [.move(.paragraphForward)], count: count)
     case "g":
       pendingGPrefix = resolvedCount.input + "g"
       return consumed()
@@ -272,11 +324,13 @@ public struct VimEngine: Sendable {
       )
       return consumed()
     case "v":
+      visualSelection = [.collapseSelection, .selectCurrentCharacter]
       return changeMode(
         to: .visual,
         after: .collapseSelection, .selectCurrentCharacter
       )
     case "V":
+      visualSelection = [.collapseSelection, .selectCurrentLines(count)]
       return changeMode(
         to: .visual,
         after: .collapseSelection, .selectCurrentLines(count)
@@ -301,8 +355,8 @@ public struct VimEngine: Sendable {
       return enterInsert(
         after:
           .collapseSelection,
-          .selectToLineBoundary(.end),
-          .deleteSelection
+        .selectToLineBoundary(.end),
+        .deleteSelection
       )
     case "S":
       return enterInsert(
@@ -347,44 +401,23 @@ public struct VimEngine: Sendable {
     let resolvedCount = pendingCount.consume()
     let count = resolvedCount.value
 
+    if let motion = VimCommandCatalog.motion(for: character) {
+      return consumed(repeating: [.move(motion, extendingSelection: true)], count: count)
+    }
+
     switch character {
-    case "h":
-      return consumed(
-        repeating: [.move(.characterBackward, extendingSelection: true)], count: count)
-    case "j":
-      return consumed(repeating: [.move(.lineDown, extendingSelection: true)], count: count)
-    case "k":
-      return consumed(repeating: [.move(.lineUp, extendingSelection: true)], count: count)
-    case "l":
-      return consumed(
-        repeating: [.move(.characterForward, extendingSelection: true)], count: count)
-    case "w":
-      return consumed(
-        repeating: [.move(.wordForward, extendingSelection: true)], count: count)
-    case "b":
-      return consumed(
-        repeating: [.move(.wordBackward, extendingSelection: true)], count: count)
-    case "e":
-      return consumed(repeating: [.move(.wordEnd, extendingSelection: true)], count: count)
-    case "0", "_":
-      return consumed(
-        repeating: [.move(.lineStart, extendingSelection: true)], count: count)
-    case "$":
-      return consumed(repeating: [.move(.lineEnd, extendingSelection: true)], count: count)
-    case "G":
-      return consumed(
-        repeating: [.move(.documentEnd, extendingSelection: true)], count: count)
-    case "{":
-      return consumed(
-        repeating: [.move(.paragraphBackward, extendingSelection: true)], count: count)
-    case "}":
-      return consumed(
-        repeating: [.move(.paragraphForward, extendingSelection: true)], count: count)
     case "g":
       pendingGPrefix = resolvedCount.input + "g"
       return consumed()
-    case "d", "x": return changeMode(to: .normal, after: .deleteSelection)
-    case "c": return changeMode(to: .insert, after: .deleteSelection)
+    case "d", "x":
+      lastChange = visualSelection.isEmpty ? [] : visualSelection + [.deleteSelection]
+      return changeMode(to: .normal, after: .deleteSelection)
+    case "c":
+      lastChange = []
+      insertRecording =
+        visualSelection.isEmpty
+        ? nil : InsertRecording(actions: visualSelection + [.deleteSelection])
+      return changeMode(to: .insert, after: .deleteSelection)
     case "y":
       return changeMode(
         to: .normal,
@@ -403,7 +436,8 @@ public struct VimEngine: Sendable {
   }
 
   private func consumed(repeating actions: [VimAction], count: Int) -> VimTransition {
-    consumed(Array(repeating: actions, count: count).flatMap { $0 })
+    guard !actions.isEmpty, count <= Self.maximumActions / actions.count else { return consumed() }
+    return consumed(Array(repeating: actions, count: count).flatMap { $0 })
   }
 
   private func passthrough(restoring input: String) -> VimTransition {
@@ -459,13 +493,13 @@ public struct VimEngine: Sendable {
     }
 
     if pendingOperator.motionCount.append(character) {
-      pendingOperator.inputPrefix.append(character)
+      if pendingOperator.inputPrefix.count < 18 { pendingOperator.inputPrefix.append(character) }
       self.pendingOperator = pendingOperator
       return consumed()
     }
 
     let count = min(
-      999,
+      Self.maximumCount,
       pendingOperator.leadingCount * pendingOperator.motionCount.resolved
     )
 
@@ -493,7 +527,7 @@ public struct VimEngine: Sendable {
       return completeLineOperator(pendingOperator.kind, count: count)
     }
 
-    guard var motion = motion(for: character) else {
+    guard var motion = VimCommandCatalog.motion(for: character) else {
       let restoration = pendingOperator.inputPrefix
       resetPendingInput()
       return passthrough(restoring: restoration)
@@ -508,7 +542,8 @@ public struct VimEngine: Sendable {
     _ kind: OperatorKind,
     count: Int
   ) -> VimTransition {
-    let selectionAction: VimAction = kind == .change
+    let selectionAction: VimAction =
+      kind == .change
       ? .selectCurrentLineContents(count)
       : .selectCurrentLines(count)
     return completeOperator(
@@ -546,7 +581,8 @@ public struct VimEngine: Sendable {
     case .lineEnd:
       selectionActions = [.collapseSelection, .selectToLineBoundary(.end)]
     default:
-      selectionActions = [.collapseSelection]
+      selectionActions =
+        [.collapseSelection]
         + Array(
           repeating: .move(motion, extendingSelection: true),
           count: count
@@ -573,24 +609,6 @@ public struct VimEngine: Sendable {
       )
     case .yank:
       return consumed(selectionActions + [.copySelection, .collapseSelection])
-    }
-  }
-
-  private func motion(for character: Character) -> CursorMotion? {
-    switch character {
-    case "h": .characterBackward
-    case "j": .lineDown
-    case "k": .lineUp
-    case "l": .characterForward
-    case "w": .wordForward
-    case "b": .wordBackward
-    case "e": .wordEnd
-    case "0", "_": .lineStart
-    case "$": .lineEnd
-    case "G": .documentEnd
-    case "{": .paragraphBackward
-    case "}": .paragraphForward
-    default: nil
     }
   }
 

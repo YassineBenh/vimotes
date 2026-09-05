@@ -25,6 +25,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, KeyboardEventTapDelega
       self?.applySettings()
     }
     configureStatusItem()
+    updateController?.onUpdateAvailabilityChange = { [weak self] in
+      self?.refreshState()
+    }
     AccessibilityPermission.request()
 
     if !eventTap.start() {
@@ -140,7 +143,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, KeyboardEventTapDelega
   }
 
   private func refreshState() {
+    eventTap.refreshContext()
     checkForUpdatesItem?.isEnabled = updateController?.canCheckForUpdates ?? false
+    checkForUpdatesItem?.title =
+      updateController?.hasPendingUpdate == true
+      ? "Update Available…" : "Check for Updates…"
     let permissionGranted = AccessibilityPermission.isGranted
     if eventTapRecoveryPolicy.shouldAttemptStart(
       permissionGranted: permissionGranted,
@@ -150,14 +157,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, KeyboardEventTapDelega
       _ = eventTap.start()
     }
 
-    let active = eventTap.isEnabled && permissionGranted && NotesFocus.isEditorFocused
+    let active =
+      eventTap.isEnabled && eventTap.isRunning && permissionGranted && NotesFocus.isEditorFocused
     modeItem.title = "Mode: \(eventTap.mode.rawValue)"
     menuBarModeIndicator.update(
       mode: eventTap.mode,
       isActive: active,
       isEnabled: eventTap.isEnabled,
       permissionGranted: permissionGranted,
-      showsMode: settings.showsModeInMenuBar
+      showsMode: settings.showsModeInMenuBar,
+      hasPendingUpdate: updateController?.hasPendingUpdate ?? false
     )
     modeIndicator.update(
       mode: eventTap.mode,

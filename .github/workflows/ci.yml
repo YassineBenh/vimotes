@@ -16,3 +16,15 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - name: Test
         run: swift test
+      - name: Check release script syntax
+        run: |
+          for script in scripts/*.sh scripts/lib/*.sh; do
+            zsh -n "$script"
+          done
+      - name: Verify Apple Silicon bundle
+        env:
+          VIMOTES_CODESIGN_IDENTITY: '-'
+        run: |
+          ./scripts/build-app.sh
+          test "$(lipo -archs dist/ViMotes.app/Contents/MacOS/ViMotes)" = arm64
+          codesign --verify --deep --strict dist/ViMotes.app

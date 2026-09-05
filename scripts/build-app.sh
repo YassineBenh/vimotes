@@ -2,27 +2,36 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
-APP_DIR="$ROOT_DIR/dist/ViMotes.app"
+APP_DIR="${VIMOTES_APP_DIR:-$ROOT_DIR/dist/ViMotes.app}"
+if [[ "$APP_DIR" != /*/ViMotes.app || -L "$APP_DIR" ]]; then
+  echo "error: VIMOTES_APP_DIR must be an absolute, non-symlink path ending in /ViMotes.app" >&2
+  exit 1
+fi
 CONTENTS_DIR="$APP_DIR/Contents"
 CONFIGURATION="${VIMOTES_BUILD_CONFIGURATION:-release}"
 RELEASE_BUILD="${VIMOTES_RELEASE_BUILD:-0}"
 
 cd "$ROOT_DIR"
 if [[ "$RELEASE_BUILD" == "1" ]]; then
-  swift build -c "$CONFIGURATION" -Xswiftc -g
+  swift build -c "$CONFIGURATION" --arch arm64 -Xswiftc -g
 else
-  swift build -c "$CONFIGURATION"
+  swift build -c "$CONFIGURATION" --arch arm64
+fi
+BIN_DIR=$(swift build -c "$CONFIGURATION" --arch arm64 --show-bin-path)
+if [[ "$(lipo -archs "$BIN_DIR/ViMotes")" != "arm64" ]]; then
+  echo "error: distributable builds must contain only arm64" >&2
+  exit 1
 fi
 
 rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources" "$CONTENTS_DIR/Frameworks"
-cp "$ROOT_DIR/.build/$CONFIGURATION/ViMotes" "$CONTENTS_DIR/MacOS/ViMotes"
+cp "$BIN_DIR/ViMotes" "$CONTENTS_DIR/MacOS/ViMotes"
 cp "$ROOT_DIR/App/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$ROOT_DIR/App/Resources/ViMotes.icns" \
   "$CONTENTS_DIR/Resources/ViMotes.icns"
 cp "$ROOT_DIR/.build/artifacts/sparkle/Sparkle/LICENSE" \
   "$CONTENTS_DIR/Resources/Sparkle-LICENSE.txt"
-ditto "$ROOT_DIR/.build/$CONFIGURATION/Sparkle.framework" \
+ditto "$BIN_DIR/Sparkle.framework" \
   "$CONTENTS_DIR/Frameworks/Sparkle.framework"
 if ! otool -l "$CONTENTS_DIR/MacOS/ViMotes" \
   | grep -Fq '@executable_path/../Frameworks'; then

@@ -7,6 +7,7 @@
 **Vim motions and modes for Apple Notes.**
 
 ![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-black)
+![Architecture](https://img.shields.io/badge/builds-Apple%20Silicon-black)
 ![Swift](https://img.shields.io/badge/Swift-6.2-orange)
 
 ViMotes is a lightweight macOS menu bar app that brings a focused Vim-like editing experience to Apple Notes. It translates Vim commands into native keyboard events, preserving rich text, lists, checklists, links, and attachments.
@@ -31,20 +32,23 @@ ViMotes only activates while an editable area in Apple Notes is focused. Everywh
 - Brief visual confirmation in the Notes window after yanking a selection
 - A menu bar control to enable or disable ViMotes
 - No analytics, telemetry, or note-content transmission
-- Automatic updates for signed release builds
+- Automatic update checks for signed release builds, with manual installation approval
 - Free and open source under the MIT License
 
 ## Requirements
 
 - macOS 13 or later
-- Swift 6.2 toolchain, available with Xcode 26 or later
+- An Apple Silicon Mac (M1 or later) for distributed builds
 - Accessibility permission for the built application
+
+Building from source also requires Swift 6.2, available with Xcode 26 or later.
 
 ## Download
 
 Signed and notarized builds will be available from
 [GitHub Releases](https://github.com/YassineBenh/vimotes/releases). Download the latest
-DMG, move ViMotes to Applications, and launch it from there.
+Apple Silicon DMG, move ViMotes to Applications, and launch it from there.
+Intel and universal binaries are not distributed.
 
 ## Build from Source
 
@@ -56,7 +60,9 @@ swift test
 open dist/ViMotes.app
 ```
 
-The build script creates `dist/ViMotes.app`. It automatically uses the first available Apple Development signing identity so macOS can preserve the app's Accessibility permission between builds. If no development certificate is available, it falls back to an ad hoc signature.
+The build script creates an arm64-only `dist/ViMotes.app`. It automatically uses the first available Apple Development signing identity so macOS can preserve the app's Accessibility permission between builds. If no development certificate is available, it falls back to an ad hoc signature.
+
+Set `VIMOTES_APP_DIR` to an absolute path ending in `/ViMotes.app` to build a separate test copy without replacing the default bundle.
 
 To select a specific identity, set `VIMOTES_CODESIGN_IDENTITY` before building:
 
@@ -79,11 +85,12 @@ By default, the current mode appears both in the menu bar and in the lower-right
 
 Open the ViMotes menu bar item and choose **Settings…** to access one unified interface:
 
-- **General** controls the mode indicators, launch at login, and automatic updates. It also provides direct links to the source code and GitHub Issues.
+- **General** controls the mode indicators, launch at login, and automatic update checks. It also provides direct links to the source code and GitHub Issues.
 - **Commands** lists every Vim command currently supported by ViMotes.
 - **Accessibility** shows the live permission status, explains why access is needed, and opens the relevant System Settings page.
 
 Preference changes apply immediately and persist between launches.
+An available update is signaled in the menu bar. Installation requires your approval.
 
 ## Supported Commands
 
@@ -116,7 +123,7 @@ Keys and shortcuts that do not match a supported ViMotes command pass through un
 
 ## How It Works
 
-The `ViMotesCore` module contains a platform-independent state machine that translates keyboard input into Vim actions. The macOS application listens for keyboard events, confirms that an Apple Notes editor is focused, and executes those actions using native movements and shortcuts.
+The `ViMotesCore` module contains a platform-independent state machine that translates keyboard input into Vim actions. The macOS application listens for keyboard events, confirms that an Apple Notes editor is focused, and executes those actions sequentially outside the keyboard callback. Execution stops when focus changes or an editing step cannot be verified; deletion of a selection requires a non-empty Accessibility selection.
 
 ViMotes does not request existing note text through Accessibility or transmit note contents. To support dot repeat, it temporarily retains directly typed Insert text in process memory. Yank and paste use the standard macOS clipboard through native keyboard shortcuts. See [Privacy](PRIVACY.md) for details.
 
@@ -127,7 +134,8 @@ ViMotes makes no analytics or license requests. Signed release builds contact th
 - Word, line, and document motions follow native macOS behavior and may differ slightly from Vim.
 - Behavior inside tables, checklists, and attachments depends on Apple Notes' private rich-text editor.
 - Text-object commands such as `ciw`, registers, macros, and character-find motions are not available yet.
-- Dot repeat records directly typed Insert text; cursor moves and macOS shortcuts used during that Insert session are not replayed.
+- Dot repeat records Visual changes and directly typed Insert text, including Backspace corrections, up to 16 KiB. Cursor moves, shortcuts, unsupported input, or changing focus during insertion invalidate that recording instead of replaying a stale edit. Text composition and autocorrection are not reconstructed.
+- Counts are capped at 100. Dot repeats exceeding 256 actions are ignored. Queued work is bounded; Escape cancels a running Normal-mode command, and changing focus or clicking cancels pending work and returns to Normal mode. Insert input already queued before Escape is kept in order.
 - `J` inserts a separating space but does not perform Vim's full whitespace normalization.
 - Search uses Apple Notes' native Find interface rather than a Vim command line.
 - Builds compiled from source do not check for automatic updates unless a Sparkle public key is configured in the application bundle.
@@ -140,6 +148,8 @@ swift test
 ```
 
 Application code lives in `Sources/ViMotes/`. The testable Vim engine lives in `Sources/ViMotesCore/`, with its tests in `Tests/ViMotesCoreTests/`.
+The editor execution policy and asynchronous queue also have tests using a fake editor.
+Follow [the manual regression checklist](docs/manual-testing.md) for native Notes and Sparkle validation.
 
 Release maintainers should follow [the distribution guide](docs/distribution.md). Signed releases are prepared locally with `scripts/release.sh` and published to GitHub with `scripts/publish-release.sh`.
 

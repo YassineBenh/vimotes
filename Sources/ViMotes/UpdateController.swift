@@ -1,7 +1,7 @@
 import Sparkle
 
 @MainActor
-final class UpdateController {
+final class UpdateController: NSObject, @MainActor SPUStandardUserDriverDelegate {
   static func configured(bundle: Bundle = .main) -> UpdateController? {
     guard
       let publicKey = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String,
@@ -13,12 +13,35 @@ final class UpdateController {
     return UpdateController()
   }
 
-  private let controller = SPUStandardUpdaterController(
+  private lazy var controller = SPUStandardUpdaterController(
     startingUpdater: false,
     updaterDelegate: nil,
-    userDriverDelegate: nil
+    userDriverDelegate: self
   )
   private(set) var isStarted = false
+  private(set) var hasPendingUpdate = false {
+    didSet {
+      if oldValue != hasPendingUpdate { onUpdateAvailabilityChange?() }
+    }
+  }
+  var onUpdateAvailabilityChange: (() -> Void)?
+  var supportsGentleScheduledUpdateReminders: Bool { true }
+
+  func standardUserDriverWillHandleShowingUpdate(
+    _ handleShowingUpdate: Bool,
+    forUpdate update: SUAppcastItem,
+    state: SPUUserUpdateState
+  ) {
+    hasPendingUpdate = !state.userInitiated
+  }
+
+  func standardUserDriverDidReceiveUserAttention(forUpdate update: SUAppcastItem) {
+    hasPendingUpdate = false
+  }
+
+  func standardUserDriverWillFinishUpdateSession() {
+    hasPendingUpdate = false
+  }
 
   var automaticallyChecksForUpdates: Bool {
     get { controller.updater.automaticallyChecksForUpdates }

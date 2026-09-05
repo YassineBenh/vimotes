@@ -11,12 +11,37 @@ protocol KeyboardEventTapDelegate: AnyObject {
 @MainActor
 final class KeyboardEventTap {
   weak var delegate: KeyboardEventTapDelegate?
-  var isEnabled = true
+  var isEnabled = true {
+    didSet { if isEnabled != oldValue { cancelContext() } }
+  }
 
   private var engine = VimEngine()
-  private let actionExecutor = NativeActionExecutor()
+  private let actionQueue: EditingWorkQueue<NotesEditorDriver, CGEvent>
+  private var currentContext: NotesFocus.EditorContext?
+  private var swallowedKeys: Set<CGKeyCode> = []
+  private var deferredKeys: Set<CGKeyCode> = []
   private var eventTap: CFMachPort?
   private var runLoopSource: CFRunLoopSource?
+
+  init() {
+    actionQueue = EditingWorkQueue(
+      driver: NotesEditorDriver(),
+      replay: { event in
+        event.setIntegerValueField(.eventSourceUserData, value: EventOrigin.marker)
+        event.post(tap: .cghidEventTap)
+        try? await Task.sleep(for: .milliseconds(8))
+      }
+    )
+    actionQueue.onFailure = { [weak self] in
+      guard let self else { return }
+      self.cancelContext()
+      self.engine.discardLastChange()
+      self.delegate?.keyboardEventTapDidChangeMode(to: self.engine.mode)
+    }
+    actionQueue.onCopy = { [weak self] in
+      self?.delegate?.keyboardEventTapDidYank()
+    }
+  }
 
   var mode: VimMode { engine.mode }
   var isRunning: Bool {
@@ -30,7 +55,8 @@ final class KeyboardEventTap {
       return CGEvent.tapIsEnabled(tap: eventTap)
     }
 
-    let eventMask = CGEventMask(1 << CGEventType.keyDown.rawValue)
+    let eventMask = [CGEventType.keyDown, .keyUp, .leftMouseDown, .rightMouseDown]
+      .reduce(CGEventMask(0)) { $0 | CGEventMask(1 << $1.rawValue) }
     let callback: CGEventTapCallBack = { _, type, event, userInfo in
       guard let userInfo else { return Unmanaged.passUnretained(event) }
       let controller = Unmanaged<KeyboardEventTap>
@@ -65,6 +91,7 @@ final class KeyboardEventTap {
   }
 
   func stop() {
+    cancelContext()
     if let eventTap {
       CGEvent.tapEnable(tap: eventTap, enable: false)
     }
@@ -77,6 +104,7 @@ final class KeyboardEventTap {
 
   private func handle(type: CGEventType, event: CGEvent) -> Bool {
     if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+      cancelContext()
       if let eventTap {
         CGEvent.tapEnable(tap: eventTap, enable: true)
       }
@@ -84,16 +112,39 @@ final class KeyboardEventTap {
       return false
     }
 
-    guard type == .keyDown,
-      event.getIntegerValueField(.eventSourceUserData) != NativeActionExecutor.eventMarker,
-      isEnabled,
-      NotesFocus.isEditorFocused
-    else {
+    guard event.getIntegerValueField(.eventSourceUserData) != EventOrigin.marker else {
       return false
     }
+    if type == .leftMouseDown || type == .rightMouseDown {
+      cancelContext()
+      return false
+    }
+    refreshContext()
+    let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+    if type == .keyUp {
+      if deferredKeys.remove(keyCode) != nil {
+        swallowedKeys.remove(keyCode)
+        if let context = currentContext {
+          enqueue([], event: event, context: context)
+          return true
+        }
+        return false
+      }
+      if swallowedKeys.remove(keyCode) != nil { return true }
+      return false
+    }
+    guard type == .keyDown, isEnabled, let context = currentContext else { return false }
 
-    let transition = engine.handle(VimInput(event: event))
-    actionExecutor.execute(transition.actions)
+    let input = VimInput(event: event)
+    if input == .escape, actionQueue.isBusy, engine.mode != .insert { cancelContext() }
+    let transition = engine.handle(input)
+    let deferEvent =
+      !transition.consumesInput && (!transition.actions.isEmpty || actionQueue.isBusy)
+    if !transition.actions.isEmpty || deferEvent {
+      enqueue(transition.actions, event: deferEvent ? event : nil, context: context)
+    }
+    if transition.consumesInput { swallowedKeys.insert(keyCode) }
+    if deferEvent { deferredKeys.insert(keyCode) }
 
     if transition.actions.contains(where: { action in
       if case .changeMode = action { return true }
@@ -102,11 +153,24 @@ final class KeyboardEventTap {
       delegate?.keyboardEventTapDidChangeMode(to: transition.mode)
     }
 
-    if transition.actions.contains(.copySelection) {
-      delegate?.keyboardEventTapDidYank()
-    }
+    return transition.consumesInput || deferEvent
+  }
 
-    return transition.consumesInput
+  func refreshContext() {
+    let context = isEnabled ? NotesFocus.editorContext : nil
+    if currentContext != context {
+      cancelContext()
+      currentContext = context
+    }
+  }
+
+  private func cancelContext() {
+    actionQueue.cancel()
+    engine.cancelContext()
+  }
+
+  private func enqueue(_ actions: [VimAction], event: CGEvent?, context: NotesFocus.EditorContext) {
+    actionQueue.enqueue(actions, event: event?.copy(), context: context)
   }
 }
 
@@ -128,6 +192,25 @@ extension VimInput {
     if flags.contains(.maskControl) {
       self = KeyboardLayout.character(for: keyCode).map(VimInput.control) ?? .other
       return
+    }
+
+    switch keyCode {
+    case 51:
+      self = flags.contains(.maskAlternate) ? .other : .backspace
+      return
+    case 117:
+      self = .deleteForward
+      return
+    case 36, 76:
+      self = .newline
+      return
+    case 48:
+      self = .tab
+      return
+    case 123...126:
+      self = .other
+      return
+    default: break
     }
 
     if let character = KeyboardLayout.character(from: event) {
