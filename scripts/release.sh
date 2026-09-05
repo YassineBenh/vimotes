@@ -106,6 +106,8 @@ hdiutil create \
   -ov \
   -format UDZO \
   "$DMG_PATH"
+codesign --sign "$IDENTITY" --timestamp "$DMG_PATH"
+codesign --verify --strict --verbose=2 "$DMG_PATH"
 xcrun notarytool submit "$DMG_PATH" \
   --keychain-profile "$NOTARY_PROFILE" \
   --wait
