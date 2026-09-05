@@ -26,5 +26,8 @@ jobs:
           VIMOTES_CODESIGN_IDENTITY: '-'
         run: |
           ./scripts/build-app.sh
+          zsh -c 'set -euo pipefail; source scripts/lib/binary-distribution.sh; vimotes_verify_binary_paths dist/ViMotes.app/Contents/MacOS/ViMotes "$PWD"; vimotes_verify_debug_symbols dist/ViMotes.app/Contents/MacOS/ViMotes dist/ViMotes.app.dSYM'
+          cmp LICENSE dist/ViMotes.app/Contents/Resources/ViMotes-LICENSE.txt
+          cmp .build/artifacts/sparkle/Sparkle/LICENSE dist/ViMotes.app/Contents/Resources/Sparkle-LICENSE.txt
           test "$(lipo -archs dist/ViMotes.app/Contents/MacOS/ViMotes)" = arm64
           codesign --verify --deep --strict dist/ViMotes.app

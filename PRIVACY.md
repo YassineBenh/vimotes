@@ -55,5 +55,8 @@ is configured in the application bundle.
 ## Support
 
 Bug reports and support requests are handled through
-[GitHub Issues](https://github.com/YassineBenh/vimotes/issues). Information submitted
-there is governed by GitHub's privacy policy and the visibility selected by the author.
+[GitHub Issues](https://github.com/YassineBenh/vimotes/issues). Issues and their comments
+are visible to anyone when the repository is public; authors cannot make individual
+issues private. Do not include credentials, private note contents, or other sensitive
+information in reports, screenshots, or attachments. Information submitted to GitHub
+is also governed by GitHub's privacy policy.

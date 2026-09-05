@@ -97,3 +97,15 @@ local test feed and expect checks against the production URL to fail.
 Keep each version's ZIP, DMG, manifest, appcast, dSYM archive, and checksums in an
 off-machine backup. dSYMs and `DSYM-SHA256SUMS` stay in the maintainer backup and are
 not uploaded by the publication script.
+
+## Build Path Privacy
+
+Release-configuration builds generate a separate `ViMotes.app.dSYM` beside the app,
+then remove debugging symbols from the distributed executable with `strip -S` before
+signing. The build verifies that the dSYM and executable UUIDs still match and rejects
+executables containing the build root or common local home and temporary paths.
+Publication repeats the executable path check on the archived app.
+
+Keep dSYMs private: they retain source paths for crash symbolication. Debug-configuration
+builds are not stripped. This cleanup does not remove the public Developer ID name or
+team identifier from the signing certificate, and it does not modify existing releases.

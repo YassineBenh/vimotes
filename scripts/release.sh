@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
 source "$ROOT_DIR/scripts/lib/release-publication.sh"
+source "$ROOT_DIR/scripts/lib/binary-distribution.sh"
 VERSION="${1:-}"
 INFO_PLIST="$ROOT_DIR/App/Info.plist"
 NOTARY_PROFILE="${VIMOTES_NOTARY_PROFILE:-vimotes-notary}"
@@ -91,8 +92,9 @@ codesign --verify --strict --verbose=2 \
   "$APP_PATH/Contents/Frameworks/Sparkle.framework"
 codesign --verify --strict --verbose=2 "$APP_PATH"
 mkdir -p "$ARTIFACT_DIR" "$PAGES_DIR" "$APPCAST_INPUT_DIR"
-dsymutil "$APP_PATH/Contents/MacOS/ViMotes" \
-  -o "$ARTIFACT_DIR/ViMotes-$VERSION.dSYM"
+vimotes_verify_binary_paths "$APP_PATH/Contents/MacOS/ViMotes" "$ROOT_DIR"
+vimotes_verify_debug_symbols "$APP_PATH/Contents/MacOS/ViMotes" "$APP_PATH.dSYM"
+ditto "$APP_PATH.dSYM" "$ARTIFACT_DIR/ViMotes-$VERSION.dSYM"
 ditto -c -k --keepParent "$ARTIFACT_DIR/ViMotes-$VERSION.dSYM" \
   "$ARTIFACT_DIR/ViMotes-$VERSION.dSYM.zip"
 

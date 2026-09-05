@@ -142,10 +142,14 @@ struct ReleasePublicationTests {
       .deletingLastPathComponent()
       .deletingLastPathComponent()
     let libraryURL = repositoryURL.appending(path: "scripts/lib/release-publication.sh")
+    let binaryLibraryURL = repositoryURL.appending(path: "scripts/lib/binary-distribution.sh")
     let process = Process()
     let output = Pipe()
     process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-    process.arguments = ["-c", "set -e; source \"$1\"; \(command)", "-", libraryURL.path]
+    process.arguments = [
+      "-c", "set -e; set -o pipefail; source \"$1\"; source \"$2\"; \(command)",
+      "-", libraryURL.path, binaryLibraryURL.path,
+    ]
     process.standardOutput = output
     process.standardError = output
     try process.run()
@@ -157,6 +161,90 @@ struct ReleasePublicationTests {
       throw ShellTestError.failed(value)
     }
     return value
+  }
+
+  @Test("Distribution removes debug paths while preserving matching private dSYMs")
+  func strippingPreservesDebugSymbols() throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try Data("int main(void) { return 0; }\n".utf8)
+      .write(to: directory.appending(path: "fixture.c"))
+    #expect(try runShell("""
+      cd '\(directory.path)'
+      xcrun clang -g -c fixture.c -o fixture.o
+      xcrun clang fixture.o -o fixture
+      if vimotes_verify_binary_paths fixture '\(directory.path)' 2>/dev/null; then exit 1; fi
+      vimotes_prepare_distribution_binary fixture fixture.dSYM '\(directory.path)'
+      xcrun dwarfdump --debug-info fixture.dSYM | grep DW_TAG_compile_unit >/dev/null
+      codesign --force --sign - fixture 2>/dev/null
+      codesign --verify --strict fixture
+      vimotes_verify_binary_paths fixture '\(directory.path)'
+      vimotes_verify_debug_symbols fixture fixture.dSYM
+      ./fixture
+      echo verified
+      """) == "verified")
+  }
+
+  @Test("Path checks inspect binary bytes and reject missing input")
+  func pathChecksRejectEmbeddedLocalPaths() throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let paths = [
+      "/Users/example/project", "/home/example/project", "/private/tmp/build",
+      "/private/var/folders/build", "/var/folders/build", "/tmp/build",
+      "/Volumes/Build Disk/project/source.swift",
+    ]
+    for (index, path) in paths.enumerated() {
+      let file = directory.appending(path: "fixture-\(index)")
+      try (Data([0, 1, 2]) + Data(path.utf8) + Data([0])).write(to: file)
+      #expect(try runShell("""
+        if vimotes_verify_binary_paths '\(file.path)' '/Volumes/Build Disk/project' 2>/dev/null; then
+          exit 1
+        fi
+        echo rejected
+        """) == "rejected")
+    }
+    #expect(try runShell("""
+      if vimotes_verify_binary_paths '\(directory.path)/missing' /build 2>/dev/null; then exit 1; fi
+      echo rejected
+      """) == "rejected")
+  }
+
+  @Test("Stripping cannot hide a local path embedded in application data")
+  func preparationRejectsRemainingPaths() throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try Data("const char *path = \"/Users/example/project\"; int main(void) { return path[0]; }\n".utf8)
+      .write(to: directory.appending(path: "fixture.c"))
+    #expect(try runShell("""
+      cd '\(directory.path)'
+      xcrun clang -g -c fixture.c -o fixture.o
+      xcrun clang fixture.o -o fixture
+      if vimotes_prepare_distribution_binary fixture fixture.dSYM '\(directory.path)' 2>/dev/null; then
+        exit 1
+      fi
+      echo rejected
+      """) == "rejected")
+  }
+
+  @Test("Debug symbols from another executable are rejected")
+  func debugSymbolsMustMatchTheExecutable() throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try Data("int main(void) { return 0; }\n".utf8)
+      .write(to: directory.appending(path: "first.c"))
+    try Data("int main(void) { return 1; }\n".utf8)
+      .write(to: directory.appending(path: "second.c"))
+    #expect(try runShell("""
+      cd '\(directory.path)'
+      xcrun clang -g -c first.c -o first.o
+      xcrun clang first.o -o first
+      xcrun clang -g -c second.c -o second.o
+      xcrun clang second.o -o second
+      xcrun dsymutil first -o first.dSYM
+      if vimotes_verify_debug_symbols second first.dSYM 2>/dev/null; then exit 1; fi
+      echo rejected
+      """) == "rejected")
   }
 }
 

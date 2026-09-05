@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
 source "$ROOT_DIR/scripts/lib/release-publication.sh"
+source "$ROOT_DIR/scripts/lib/binary-distribution.sh"
 VERSION="${1:-}"
 TAG="v$VERSION"
 ARTIFACT_DIR="$ROOT_DIR/release-artifacts/$VERSION"
@@ -67,6 +68,7 @@ if [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$ARCHIVED_INFO")" 
   exit 1
 fi
 codesign --verify --deep --strict "$ARCHIVED_APP"
+vimotes_verify_binary_paths "$ARCHIVED_APP/Contents/MacOS/ViMotes" "$ROOT_DIR"
 xcrun stapler validate "$ARCHIVED_APP"
 FEED_BUILD=$(xmllint --xpath 'string(//*[local-name()="item"]/*[local-name()="version"])' "$PAYLOAD_DIR/appcast.xml")
 FEED_URL=$(xmllint --xpath 'string(//*[local-name()="enclosure"]/@url)' "$PAYLOAD_DIR/appcast.xml")

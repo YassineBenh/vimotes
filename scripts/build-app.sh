@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="${0:A:h:h}"
+source "$ROOT_DIR/scripts/lib/binary-distribution.sh"
 APP_DIR="${VIMOTES_APP_DIR:-$ROOT_DIR/dist/ViMotes.app}"
 if [[ "$APP_DIR" != /*/ViMotes.app || -L "$APP_DIR" ]]; then
   echo "error: VIMOTES_APP_DIR must be an absolute, non-symlink path ending in /ViMotes.app" >&2
@@ -12,7 +13,11 @@ CONFIGURATION="${VIMOTES_BUILD_CONFIGURATION:-release}"
 RELEASE_BUILD="${VIMOTES_RELEASE_BUILD:-0}"
 
 cd "$ROOT_DIR"
-if [[ "$RELEASE_BUILD" == "1" ]]; then
+if [[ "$RELEASE_BUILD" == "1" && "$CONFIGURATION" != "release" ]]; then
+  echo "error: signed releases require the release configuration" >&2
+  exit 1
+fi
+if [[ "$CONFIGURATION" == "release" ]]; then
   swift build -c "$CONFIGURATION" --arch arm64 -Xswiftc -g
 else
   swift build -c "$CONFIGURATION" --arch arm64
@@ -29,6 +34,7 @@ cp "$BIN_DIR/ViMotes" "$CONTENTS_DIR/MacOS/ViMotes"
 cp "$ROOT_DIR/App/Info.plist" "$CONTENTS_DIR/Info.plist"
 cp "$ROOT_DIR/App/Resources/ViMotes.icns" \
   "$CONTENTS_DIR/Resources/ViMotes.icns"
+cp "$ROOT_DIR/LICENSE" "$CONTENTS_DIR/Resources/ViMotes-LICENSE.txt"
 cp "$ROOT_DIR/.build/artifacts/sparkle/Sparkle/LICENSE" \
   "$CONTENTS_DIR/Resources/Sparkle-LICENSE.txt"
 ditto "$BIN_DIR/Sparkle.framework" \
@@ -44,6 +50,11 @@ if [[ "$RELEASE_BUILD" == "1" ]]; then
   /usr/libexec/PlistBuddy -c \
     "Set :SUPublicEDKey $VIMOTES_SPARKLE_PUBLIC_KEY" \
     "$CONTENTS_DIR/Info.plist"
+fi
+
+if [[ "$CONFIGURATION" == "release" ]]; then
+  vimotes_prepare_distribution_binary \
+    "$CONTENTS_DIR/MacOS/ViMotes" "$APP_DIR.dSYM" "$ROOT_DIR"
 fi
 
 SIGNING_IDENTITY="${VIMOTES_CODESIGN_IDENTITY:-}"
